@@ -16,6 +16,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -42,6 +43,8 @@ class MainActivity : AppCompatActivity() {
     private var isRecording = false
     private var recordingStartMs = 0L
     private var tts: TextToSpeech? = null
+    private var eggTapCount = 0
+    private var eggLastTapMs = 0L
 
     private lateinit var prefs: SharedPreferences
     private lateinit var btnRecord: Button
@@ -50,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var transcriptionsContainer: LinearLayout
     private lateinit var tvStats: TextView
+    private lateinit var tvTitle: TextView
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -78,6 +82,17 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         transcriptionsContainer = findViewById(R.id.transcriptionsContainer)
         tvStats = findViewById(R.id.tvStats)
+        tvTitle = findViewById(R.id.tvTitle)
+        tvTitle.setOnClickListener {
+            val now = System.currentTimeMillis()
+            if (now - eggLastTapMs > 1000) eggTapCount = 0
+            eggLastTapMs = now
+            eggTapCount++
+            if (eggTapCount >= 5) {
+                eggTapCount = 0
+                Toast.makeText(this, "\uD83E\uDD5A Joyeuses P\u00E2ques !", Toast.LENGTH_LONG).show()
+            }
+        }
 
         try {
             tts = TextToSpeech(this) { status ->
