@@ -47,23 +47,24 @@ Le `app/build.gradle.kts` la lit via `localProps.getProperty("mistral.api_key")`
 
 ## OTA
 
-**Architecture** : OkHttp (déjà présent) → `version.json` dans le repo GitHub → AlertDialog → DownloadManager → FileProvider
+**Architecture** : OkHttp → auth anonyme Firebase REST → Firestore `/config/voxtral_update` → AlertDialog → DownloadManager → FileProvider
 
-**URL** :
-```
-https://raw.githubusercontent.com/darklem/voxtral-transcript/main/version.json
-```
+**APKs stockés dans** : Firebase Storage `messaging-app-71a13.firebasestorage.app/apks/`
 
-**Format `version.json`** (à la racine du repo) :
-```json
-{ "version": 2, "url": "https://github.com/darklem/voxtral-transcript/releases/download/v1.2/voxtral-v1.2.apk", "notes": "Description" }
+**Clé service account** (pour uploads) : `~/.secrets/firebase-adminsdk.json`
+
+**Script upload + mise à jour Firestore** :
+```python
+# voir /home/dl/projects/voxtral/scripts/release.py (à créer)
+# ou utiliser le script Python en session
 ```
 
 **Pour publier une mise à jour** :
 1. Incrémenter `CURRENT_VERSION` dans `UpdateManager.kt`
 2. Incrémenter `versionCode` + `versionName` dans `app/build.gradle.kts`
-3. Builder, uploader l'APK (GitHub Releases)
-4. Mettre à jour `version.json` dans le repo → push
+3. Builder l'APK
+4. Uploader sur Firebase Storage via script Python (service account)
+5. Mettre à jour Firestore `config/voxtral_update` → `version` + `url` + `notes`
 
 ---
 
