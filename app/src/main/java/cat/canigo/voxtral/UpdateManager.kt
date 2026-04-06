@@ -20,8 +20,12 @@ import java.util.concurrent.TimeUnit
 
 object UpdateManager {
     private const val CURRENT_VERSION = 1
-    const val UPDATE_CHECK_URL =
-        "https://raw.githubusercontent.com/darklem/voxtral/main/version.json"
+
+    // Firebase project REST API — no SDK needed, OkHttp already present
+    private const val FIREBASE_PROJECT = "messaging-app-71a13"
+    private const val FIREBASE_API_KEY = "AIzaSyAGPEmZd_JkunwoZqyqPOetr_NXkyq85Gc"
+    private const val FIRESTORE_URL =
+        "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT/databases/(default)/documents/config/voxtral_update?key=$FIREBASE_API_KEY"
 
     data class UpdateInfo(val version: Int, val url: String, val notes: String)
 
@@ -31,16 +35,17 @@ object UpdateManager {
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(10, TimeUnit.SECONDS)
                 .build()
-            val req = Request.Builder().url(UPDATE_CHECK_URL).build()
+            val req = Request.Builder().url(FIRESTORE_URL).build()
             val resp = client.newCall(req).execute()
             if (!resp.isSuccessful) return@withContext null
-            val json = JSONObject(resp.body?.string() ?: return@withContext null)
-            val remoteVersion = json.getInt("version")
+            val root = JSONObject(resp.body?.string() ?: return@withContext null)
+            val fields = root.getJSONObject("fields")
+            val remoteVersion = fields.getJSONObject("version").getString("integerValue").toInt()
             if (remoteVersion <= CURRENT_VERSION) return@withContext null
             UpdateInfo(
                 version = remoteVersion,
-                url = json.getString("url"),
-                notes = json.optString("notes", "")
+                url = fields.getJSONObject("url").getString("stringValue"),
+                notes = fields.optJSONObject("notes")?.optString("stringValue") ?: ""
             )
         } catch (e: Exception) { null }
     }
