@@ -12,34 +12,53 @@ import android.os.Environment
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
 object UpdateManager {
     private const val CURRENT_VERSION = 1
-
-    // Firebase project REST API — no SDK needed, OkHttp already present
     private const val FIREBASE_PROJECT = "messaging-app-71a13"
     private const val FIREBASE_API_KEY = "AIzaSyAGPEmZd_JkunwoZqyqPOetr_NXkyq85Gc"
-    private const val FIRESTORE_URL =
-        "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT/databases/(default)/documents/config/voxtral_update?key=$FIREBASE_API_KEY"
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
 
     data class UpdateInfo(val version: Int, val url: String, val notes: String)
 
+    /** Firebase anonymous auth via REST → returns idToken */
+    private fun getAnonIdToken(): String? {
+        return try {
+            val body = "{}".toRequestBody("application/json".toMediaTypeOrNull())
+            val req = Request.Builder()
+                .url("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$FIREBASE_API_KEY")
+                .post(body)
+                .build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return null
+            JSONObject(resp.body?.string() ?: return null).getString("idToken")
+        } catch (e: Exception) { null }
+    }
+
     suspend fun checkForUpdate(): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(10, TimeUnit.SECONDS)
+            val idToken = getAnonIdToken() ?: return@withContext null
+            val url = "https://firestore.googleapis.com/v1/projects/$FIREBASE_PROJECT" +
+                      "/databases/(default)/documents/config/voxtral_update"
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $idToken")
                 .build()
-            val req = Request.Builder().url(FIRESTORE_URL).build()
             val resp = client.newCall(req).execute()
             if (!resp.isSuccessful) return@withContext null
-            val root = JSONObject(resp.body?.string() ?: return@withContext null)
-            val fields = root.getJSONObject("fields")
+            val fields = JSONObject(resp.body?.string() ?: return@withContext null)
+                .getJSONObject("fields")
             val remoteVersion = fields.getJSONObject("version").getString("integerValue").toInt()
             if (remoteVersion <= CURRENT_VERSION) return@withContext null
             UpdateInfo(
