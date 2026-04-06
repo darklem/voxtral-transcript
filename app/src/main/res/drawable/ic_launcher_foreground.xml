@@ -1,0 +1,64 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+  <!-- Pink gradient background circle -->
+  <path
+    android:fillColor="#F8BBD9"
+    android:pathData="M54,54m-54,0a54,54 0 1,0 108,0a54,54 0 1,0 -108,0"/>
+
+  <!-- Mic body (rounded rectangle) -->
+  <path
+    android:fillColor="#E91E8C"
+    android:pathData="M44,28 Q44,20 54,20 Q64,20 64,28 L64,52 Q64,62 54,62 Q44,62 44,52 Z"/>
+
+  <!-- Mic grill lines -->
+  <path android:fillColor="#FFFFFF" android:strokeAlpha="0.5"
+    android:pathData="M48,32 L60,32" android:strokeWidth="2" android:strokeColor="#FFFFFF"/>
+  <path android:fillColor="#FFFFFF" android:strokeAlpha="0.5"
+    android:pathData="M47,38 L61,38" android:strokeWidth="2" android:strokeColor="#FFFFFF"/>
+  <path android:fillColor="#FFFFFF" android:strokeAlpha="0.5"
+    android:pathData="M47,44 L61,44" android:strokeWidth="2" android:strokeColor="#FFFFFF"/>
+
+  <!-- Mic stand arc -->
+  <path
+    android:fillColor="#00000000"
+    android:strokeColor="#E91E8C"
+    android:strokeWidth="3.5"
+    android:pathData="M38,56 Q38,72 54,72 Q70,72 70,56"/>
+
+  <!-- Mic stand pole -->
+  <path
+    android:strokeColor="#E91E8C"
+    android:strokeWidth="3.5"
+    android:fillColor="#00000000"
+    android:pathData="M54,72 L54,80"/>
+
+  <!-- Base -->
+  <path
+    android:fillColor="#E91E8C"
+    android:pathData="M44,80 L64,80 Q64,84 54,84 Q44,84 44,80 Z"/>
+
+  <!-- Heart top left -->
+  <path
+    android:fillColor="#FF4081"
+    android:pathData="M30,22 C30,19 27,17 25,19 C23,17 20,19 20,22 C20,25 25,29 25,29 C25,29 30,25 30,22 Z"/>
+
+  <!-- Heart top right -->
+  <path
+    android:fillColor="#FF4081"
+    android:pathData="M88,18 C88,15 85,13 83,15 C81,13 78,15 78,18 C78,21 83,25 83,25 C83,25 88,21 88,18 Z"/>
+
+  <!-- Sparkle star top -->
+  <path
+    android:fillColor="#FFD700"
+    android:pathData="M54,10 L55.5,14 L60,14 L56.5,16.5 L58,21 L54,18 L50,21 L51.5,16.5 L48,14 L52.5,14 Z"/>
+
+  <!-- Small heart bottom right -->
+  <path
+    android:fillColor="#FF80AB"
+    android:pathData="M82,78 C82,76 80,75 79,76 C78,75 76,76 76,78 C76,80 79,82 79,82 C79,82 82,80 82,78 Z"/>
+
+</vector>
