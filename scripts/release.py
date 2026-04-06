@@ -31,7 +31,7 @@ def upload_apk(apk_path, version):
     requests.post(f"https://storage.googleapis.com/storage/v1/b/{BUCKET}/o/{encoded}/acl",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json={"entity": "allUsers", "role": "READER"})
-    dl_url = f"https://firebasestorage.googleapis.com/v0/b/{BUCKET}/o/{encoded}?alt=media"
+    dl_url = f"https://storage.googleapis.com/{BUCKET}/{gcs_name}"
     print(f"Uploaded: {dl_url}")
     return dl_url
 
