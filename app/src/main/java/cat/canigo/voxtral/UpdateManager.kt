@@ -21,7 +21,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 object UpdateManager {
-    private const val CURRENT_VERSION = 2
+    private const val CURRENT_VERSION = 3
     private const val FIREBASE_PROJECT = "messaging-app-71a13"
     private const val FIREBASE_API_KEY = "AIzaSyAGPEmZd_JkunwoZqyqPOetr_NXkyq85Gc"
 

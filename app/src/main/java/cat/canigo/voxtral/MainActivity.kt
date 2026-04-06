@@ -90,7 +90,9 @@ class MainActivity : AppCompatActivity() {
             eggTapCount++
             if (eggTapCount >= 5) {
                 eggTapCount = 0
-                Toast.makeText(this, "\uD83E\uDD5A Joyeuses P\u00E2ques !", Toast.LENGTH_LONG).show()
+                val toast = Toast.makeText(this, "\uD83E\uDD5A Joyeuses P\u00E2ques !", Toast.LENGTH_LONG)
+                toast.setGravity(android.view.Gravity.CENTER, 0, 0)
+                toast.show()
             }
         }
 
