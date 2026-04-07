@@ -17,8 +17,8 @@ android {
         applicationId = "cat.canigo.voxtral"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.3"
+        versionCode = 10
+        versionName = "2.0"
         buildConfigField("String", "MISTRAL_API_KEY",
             "\"${localProps.getProperty("mistral.api_key", "")}\"")
     }

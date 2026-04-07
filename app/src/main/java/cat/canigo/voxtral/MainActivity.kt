@@ -6,6 +6,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.media.MediaRecorder
 import android.os.Bundle
 import android.os.SystemClock
@@ -55,6 +59,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStats: TextView
     private lateinit var tvTitle: TextView
 
+    // ── Géolocalisation ───────────────────────────────────────────────────────
+    private var currentLocation: Location? = null
+    private lateinit var locationManager: LocationManager
+    private val locationListener = LocationListener { location -> currentLocation = location }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -63,11 +72,12 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val PERMISSION_REQUEST = 100
         val API_KEY get() = BuildConfig.MISTRAL_API_KEY
-        // Voxtral Mini pricing: $0.004 / minute = $0.00006667 / second
         const val PRICE_PER_SEC = 0.004 / 60.0
         val COLOR_PURPLE = 0xFF9C27B0.toInt()
         val COLOR_RED    = 0xFFD32F2F.toInt()
         val COLOR_GREY   = 0xFF9E9E9E.toInt()
+        private const val LOCATION_INTERVAL_MS = 2 * 60 * 1000L  // 2 min
+        private const val LOCATION_MIN_DIST_M  = 10f
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,24 +85,25 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("voxtral_stats", Context.MODE_PRIVATE)
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-        btnRecord = findViewById(R.id.btnRecord)
-        tvStatus  = findViewById(R.id.tvStatus)
-        tvRecordLabel = findViewById(R.id.tvRecordLabel)
-        progressBar = findViewById(R.id.progressBar)
+        btnRecord            = findViewById(R.id.btnRecord)
+        tvStatus             = findViewById(R.id.tvStatus)
+        tvRecordLabel        = findViewById(R.id.tvRecordLabel)
+        progressBar          = findViewById(R.id.progressBar)
         transcriptionsContainer = findViewById(R.id.transcriptionsContainer)
-        tvStats = findViewById(R.id.tvStats)
-        tvTitle = findViewById(R.id.tvTitle)
+        tvStats              = findViewById(R.id.tvStats)
+        tvTitle              = findViewById(R.id.tvTitle)
+
         tvTitle.setOnClickListener {
             val now = System.currentTimeMillis()
             if (now - eggLastTapMs > 1000) eggTapCount = 0
             eggLastTapMs = now
-            eggTapCount++
-            if (eggTapCount >= 5) {
+            if (++eggTapCount >= 5) {
                 eggTapCount = 0
-                val toast = Toast.makeText(this, "\uD83E\uDD5A Joyeuses P\u00E2ques !", Toast.LENGTH_LONG)
-                toast.setGravity(android.view.Gravity.CENTER, 0, 0)
-                toast.show()
+                val t = Toast.makeText(this, "\uD83E\uDD5A Joyeuses P\u00E2ques !", Toast.LENGTH_LONG)
+                t.setGravity(android.view.Gravity.CENTER, 0, 0)
+                t.show()
             }
         }
 
@@ -100,29 +111,112 @@ class MainActivity : AppCompatActivity() {
             tts = TextToSpeech(this) { status ->
                 if (status == TextToSpeech.SUCCESS) {
                     val res = tts?.setLanguage(Locale.FRENCH) ?: TextToSpeech.LANG_NOT_SUPPORTED
-                    if (res == TextToSpeech.LANG_MISSING_DATA ||
-                        res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED)
                         tts?.setLanguage(Locale.getDefault())
-                    }
                 }
             }
         } catch (e: Exception) { tts = null }
 
         btnRecord.setOnClickListener {
-            if (!hasPermission()) { requestPermission(); return@setOnClickListener }
+            if (!hasAudioPermission()) { requestPermissions(); return@setOnClickListener }
             if (isRecording) stopRecording() else startRecording()
         }
 
+        requestPermissions()
         updateStatsDisplay()
 
-        // OTA check
         CoroutineScope(Dispatchers.IO).launch {
             val update = UpdateManager.checkForUpdate()
-            update?.let { withContext(Dispatchers.Main) { UpdateManager.showUpdateDialog(this@MainActivity, it) } }
+            if (update != null) UpdateManager.downloadAndInstall(this@MainActivity, update.url)
         }
     }
 
-    // ── Stats ──────────────────────────────────────────────────────────────
+    // ── Permissions ───────────────────────────────────────────────────────────
+
+    private fun hasAudioPermission() =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+
+    private fun hasLocationPermission() =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+
+    private fun requestPermissions() {
+        val needed = mutableListOf<String>()
+        if (!hasAudioPermission())    needed.add(Manifest.permission.RECORD_AUDIO)
+        if (!hasLocationPermission()) needed.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (needed.isNotEmpty())
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), PERMISSION_REQUEST)
+        else
+            startLocationUpdates()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST && hasLocationPermission())
+            startLocationUpdates()
+    }
+
+    // ── Géolocalisation ───────────────────────────────────────────────────────
+
+    private fun startLocationUpdates() {
+        if (!hasLocationPermission()) return
+        try {
+            // Use NETWORK_PROVIDER (fonctionne sans GPS, compatible GrapheneOS)
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    LOCATION_INTERVAL_MS,
+                    LOCATION_MIN_DIST_M,
+                    locationListener
+                )
+                // Initialise avec la dernière position connue
+                currentLocation = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            }
+            // GPS en complément si disponible
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    LOCATION_INTERVAL_MS,
+                    LOCATION_MIN_DIST_M,
+                    locationListener
+                )
+                if (currentLocation == null)
+                    currentLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            }
+        } catch (e: SecurityException) { /* permission refusée */ }
+    }
+
+    override fun onDestroy() {
+        try { locationManager.removeUpdates(locationListener) } catch (_: Exception) {}
+        try { tts?.stop(); tts?.shutdown() } catch (e: Exception) {}
+        super.onDestroy()
+    }
+
+    private suspend fun resolveAddress(location: Location): String = withContext(Dispatchers.IO) {
+        try {
+            val geocoder = Geocoder(this@MainActivity, Locale.getDefault())
+            @Suppress("DEPRECATION")
+            val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+            if (!addresses.isNullOrEmpty()) {
+                val addr = addresses[0]
+                buildString {
+                    addr.locality?.let { append(it) }
+                    addr.subLocality?.let {
+                        if (isNotEmpty()) append(", ")
+                        append(it)
+                    }
+                    if (isEmpty()) addr.adminArea?.let { append(it) }
+                }.ifEmpty { "%.5f, %.5f".format(location.latitude, location.longitude) }
+            } else "%.5f, %.5f".format(location.latitude, location.longitude)
+        } catch (_: Exception) {
+            "%.5f, %.5f".format(location.latitude, location.longitude)
+        }
+    }
+
+    // ── Stats ─────────────────────────────────────────────────────────────────
 
     private fun addStats(durationSec: Float) {
         val prevSec   = prefs.getFloat("total_sec", 0f)
@@ -137,37 +231,21 @@ class MainActivity : AppCompatActivity() {
         val totalSec = prefs.getFloat("total_sec", 0f)
         val count    = prefs.getInt("count", 0)
         val costUsd  = totalSec * PRICE_PER_SEC
-        val costEur  = costUsd * 0.92  // approx EUR
-
+        val costEur  = costUsd * 0.92
         val min  = (totalSec / 60).toInt()
         val sec  = (totalSec % 60).toInt()
         val dur  = if (min > 0) "${min}m ${sec}s" else "${sec}s"
-
         tvStats.text = "📊 $count transcription(s)  •  $dur  •  \$${"%.4f".format(costUsd)}  (~€${"%.4f".format(costEur)})"
     }
 
-    // ── TTS ───────────────────────────────────────────────────────────────
+    // ── TTS ───────────────────────────────────────────────────────────────────
 
     private fun speak(text: String) {
-        try { tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null,
-            "utt_${System.currentTimeMillis()}") } catch (e: Exception) {}
+        try { tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utt_${System.currentTimeMillis()}") }
+        catch (e: Exception) {}
     }
 
-    override fun onDestroy() {
-        try { tts?.stop(); tts?.shutdown() } catch (e: Exception) {}
-        super.onDestroy()
-    }
-
-    // ── Recording ─────────────────────────────────────────────────────────
-
-    private fun hasPermission() =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED
-
-    private fun requestPermission() {
-        ActivityCompat.requestPermissions(this,
-            arrayOf(Manifest.permission.RECORD_AUDIO), PERMISSION_REQUEST)
-    }
+    // ── Recording ─────────────────────────────────────────────────────────────
 
     private fun startRecording() {
         audioFile = File(cacheDir, "rec_${System.currentTimeMillis()}.m4a")
@@ -184,22 +262,21 @@ class MainActivity : AppCompatActivity() {
         recordingStartMs = SystemClock.elapsedRealtime()
         isRecording = true
         btnRecord.text = "⏹"
-        btnRecord.backgroundTintList =
-            android.content.res.ColorStateList.valueOf(COLOR_RED)
+        btnRecord.backgroundTintList = android.content.res.ColorStateList.valueOf(COLOR_RED)
         tvStatus.text = "⏺ Enregistrement..."
         tvRecordLabel.text = "Appuyer pour arrêter"
     }
 
     private fun stopRecording() {
         val durationSec = (SystemClock.elapsedRealtime() - recordingStartMs) / 1000f
+        val locationAtStop = currentLocation  // capture position au moment de l'arrêt
         recorder?.apply { stop(); release() }
         recorder = null
         isRecording = false
 
         btnRecord.isEnabled = false
         btnRecord.text = "⏳"
-        btnRecord.backgroundTintList =
-            android.content.res.ColorStateList.valueOf(COLOR_GREY)
+        btnRecord.backgroundTintList = android.content.res.ColorStateList.valueOf(COLOR_GREY)
         tvStatus.text = "🦄 Transcription Voxtral..."
         tvRecordLabel.text = ""
         progressBar.visibility = View.VISIBLE
@@ -207,25 +284,24 @@ class MainActivity : AppCompatActivity() {
         audioFile?.let { file ->
             CoroutineScope(Dispatchers.IO).launch {
                 val result = transcribe(file)
+                // Resolve address in parallel
+                val address = locationAtStop?.let { resolveAddress(it) }
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
                     btnRecord.isEnabled = true
                     btnRecord.text = "🎙️"
-                    btnRecord.backgroundTintList =
-                        android.content.res.ColorStateList.valueOf(COLOR_PURPLE)
+                    btnRecord.backgroundTintList = android.content.res.ColorStateList.valueOf(COLOR_PURPLE)
                     tvRecordLabel.text = "Appuyer pour enregistrer"
 
                     if (result != null) {
                         addStats(durationSec)
                         updateStatsDisplay()
-
-        // OTA check
-        CoroutineScope(Dispatchers.IO).launch {
-            val update = UpdateManager.checkForUpdate()
-            update?.let { withContext(Dispatchers.Main) { UpdateManager.showUpdateDialog(this@MainActivity, it) } }
-        }
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val update = UpdateManager.checkForUpdate()
+                            if (update != null) UpdateManager.downloadAndInstall(this@MainActivity, update.url)
+                        }
                         tvStatus.text = "✨ Prêt"
-                        addTranscription(result, durationSec)
+                        addTranscription(result, durationSec, locationAtStop, address)
                     } else {
                         tvStatus.text = "⚠️ Erreur de transcription"
                     }
@@ -235,7 +311,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ── API ───────────────────────────────────────────────────────────────
+    // ── API ───────────────────────────────────────────────────────────────────
 
     private fun transcribe(file: File): String? {
         return try {
@@ -246,13 +322,11 @@ class MainActivity : AppCompatActivity() {
                 .addFormDataPart("file", file.name,
                     file.asRequestBody("audio/mp4".toMediaTypeOrNull()))
                 .build()
-
             val request = Request.Builder()
                 .url("https://api.mistral.ai/v1/audio/transcriptions")
                 .addHeader("Authorization", "Bearer $API_KEY")
                 .post(body)
                 .build()
-
             val response = client.newCall(request).execute()
             val responseBody = response.body?.string() ?: return null
             if (response.isSuccessful) JSONObject(responseBody).getString("text").trim()
@@ -260,9 +334,14 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { null }
     }
 
-    // ── UI ────────────────────────────────────────────────────────────────
+    // ── UI ────────────────────────────────────────────────────────────────────
 
-    private fun addTranscription(text: String, durationSec: Float) {
+    private fun addTranscription(
+        text: String,
+        durationSec: Float,
+        location: Location? = null,
+        address: String? = null
+    ) {
         val dp = resources.displayMetrics.density
         val costUsd = durationSec * PRICE_PER_SEC
 
@@ -278,14 +357,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        val secStr = "%.1f".format(durationSec)
-        val costStr = "${"%.4f".format(costUsd)}"
-
         card.addView(TextView(this).apply {
-            this.text = "$ts  •  ${secStr}s  •  \$$costStr"
+            this.text = "$ts  •  ${"%.1f".format(durationSec)}s  •  \$${"%.4f".format(costUsd)}"
             textSize = 11f
             setTextColor(0xFFAB47BC.toInt())
         })
+
+        // Ligne géolocalisation
+        if (location != null) {
+            val locLabel = address ?: "%.5f, %.5f".format(location.latitude, location.longitude)
+            card.addView(TextView(this).apply {
+                this.text = "📍 $locLabel"
+                textSize = 11f
+                setTextColor(0xFF7B7B7B.toInt())
+                setPadding(0, (2 * dp).toInt(), 0, 0)
+            })
+        }
+
         card.addView(TextView(this).apply {
             this.text = text
             textSize = 15f
@@ -299,11 +387,11 @@ class MainActivity : AppCompatActivity() {
                 true
             }
         })
+
         card.addView(Button(this).apply {
             this.text = "🔊 Écouter"
             textSize = 12f
-            backgroundTintList =
-                android.content.res.ColorStateList.valueOf(0xFFCE93D8.toInt())
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFCE93D8.toInt())
             setTextColor(0xFFFFFFFF.toInt())
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, (40 * dp).toInt())
